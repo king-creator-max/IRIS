@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IRIS — Intelligent Resource Information System</title>
+<style>
+:root{--bg:#070b12;--panel:#0d1420;--panel2:#111b2a;--text:#f5f7fb;--muted:#9aa7ba;--line:#223047;--accent:#62a8ff;--danger:#ff6b6b}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#15243a 0,#070b12 45%);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;height:100vh;overflow:hidden}
+.app{display:flex;height:100vh}.side{width:270px;background:#09101a;border-right:1px solid var(--line);padding:18px;display:flex;flex-direction:column;gap:16px}.brand{font-weight:800;font-size:21px}.sub{font-size:11px;color:var(--muted);margin-top:2px}.new{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;padding:11px;cursor:pointer}.history{flex:1;overflow:auto}.history div{padding:9px;border-radius:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bottom{display:grid;gap:8px}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}.top{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:rgba(9,16,26,.82);backdrop-filter:blur(10px)}.status{font-size:12px;color:#91d39b}.top button{background:transparent;border:1px solid var(--line);color:var(--text);padding:8px 11px;border-radius:9px;cursor:pointer}
+.chat{flex:1;overflow:auto;padding:28px max(18px,calc((100% - 900px)/2));}.welcome{text-align:center;margin:10vh auto 30px;max-width:700px}.welcome h1{font-size:40px;margin:0 0 10px}.welcome p{color:var(--muted)}
+.msg{display:flex;margin:14px 0}.bubble{max-width:82%;padding:12px 14px;border-radius:14px;white-space:pre-wrap;line-height:1.55}.user{justify-content:flex-end}.user .bubble{background:#173457}.assistant .bubble{background:var(--panel2);border:1px solid var(--line)}
+.composer{padding:15px max(18px,calc((100% - 900px)/2));border-top:1px solid var(--line);background:#080e17}.form{display:flex;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:8px}.form textarea{flex:1;resize:none;border:0;outline:0;background:transparent;color:var(--text);padding:9px;font:inherit;min-height:44px;max-height:160px}.form button{border:0;border-radius:10px;padding:0 14px;background:var(--accent);color:#06101e;font-weight:800;cursor:pointer}.login{position:fixed;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;z-index:10}.card{width:min(92vw,400px);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:24px;box-shadow:0 20px 70px #0008}.card h2{margin-top:0}.card input{width:100%;margin:7px 0;padding:12px;border-radius:10px;border:1px solid var(--line);background:#070c14;color:var(--text);outline:none}.card button{width:100%;padding:12px;margin-top:8px;border:0;border-radius:10px;background:var(--accent);font-weight:800;cursor:pointer}.err{color:var(--danger);min-height:20px;font-size:13px}.hidden{display:none!important}
+@media(max-width:700px){.side{display:none}.welcome h1{font-size:31px}.bubble{max-width:92%}}
+</style>
+</head>
+<body>
+<div id="login" class="login">
+  <div class="card">
+    <h2>IRIS Access</h2>
+    <p style="color:var(--muted)">Owner sign-in</p>
+    <input id="username" placeholder="Username" autocomplete="username">
+    <input id="password" placeholder="Password" type="password" autocomplete="current-password">
+    <div id="loginErr" class="err"></div>
+    <button id="loginBtn">Enter IRIS</button>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <aside class="side">
+    <div><div class="brand">◉ IRIS</div><div class="sub">Intelligent Resource Information System</div></div>
+    <button class="new" id="newChat">＋ New chat</button>
+    <div class="history" id="history"></div>
+    <div class="bottom">
+      <button class="new" id="healthBtn">System status</button>
+      <button class="new" id="logout">Log out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div><b>IRIS</b> <span class="sub">personal AI assistant</span></div>
+      <div><span id="status" class="status">Checking…</span></div>
+    </header>
+
+    <section class="chat" id="chat">
+      <div class="welcome" id="welcome">
+        <h1>How can I help?</h1>
+        <p>Ask IRIS anything supported by your configured AI model.</p>
+      </div>
+    </section>
+
+    <section class="composer">
+      <form class="form" id="form">
+        <textarea id="input" placeholder="Message IRIS…" rows="1"></textarea>
+        <button type="button" id="mic" title="Voice input">🎙</button>
+        <button type="submit">Send</button>
+      </form>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let messages = [];
+let recognition = null;
+
+function addMessage(role, content) {
+  $("welcome").classList.add("hidden");
+  const row = document.createElement("div");
+  row.className = "msg " + role;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = content;
+  row.appendChild(bubble);
+  $("chat").appendChild(row);
+  $("chat").scrollTop = $("chat").scrollHeight;
+}
+
+function resetChat() {
+  messages = [];
+  $("chat").innerHTML = '<div class="welcome" id="welcome"><h1>How can I help?</h1><p>Ask IRIS anything supported by your configured AI model.</p></div>';
+}
+
+function addHistory(text) {
+  const el = document.createElement("div");
+  el.textContent = text;
+  $("history").prepend(el);
+}
+
+async function api(url, options={}) {
+  const r = await fetch(url, {headers: {"Content-Type":"application/json", ...(options.headers||{})}, ...options});
+  const data = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+async function checkSession() {
+  try {
+    await api("/api/me");
+    $("login").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    await systemStatus();
+  } catch {}
+}
+
+async function systemStatus() {
+  try {
+    const d = await api("/api/health");
+    $("status").textContent = d.configured ? "● Online" : "● Setup needed";
+  } catch {
+    $("status").textContent = "● Offline";
+  }
+}
+
+$("loginBtn").onclick = async () => {
+  $("loginErr").textContent = "";
+  try {
+    await api("/api/login", {method:"POST", body:JSON.stringify({
+      username:$("username").value,
+      password:$("password").value
+    })});
+    $("login").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    await systemStatus();
+  } catch(e) { $("loginErr").textContent = e.message; }
+};
+
+$("password").addEventListener("keydown", e => { if(e.key==="Enter") $("loginBtn").click(); });
+
+$("logout").onclick = async () => {
+  await api("/api/logout", {method:"POST"});
+  location.reload();
+};
+
+$("newChat").onclick = resetChat;
+$("healthBtn").onclick = systemStatus;
+
+$("form").onsubmit = async e => {
+  e.preventDefault();
+  const text = $("input").value.trim();
+  if (!text) return;
+
+  $("input").value = "";
+  addMessage("user", text);
+  addHistory(text.length > 45 ? text.slice(0,45)+"…" : text);
+  messages.push({role:"user", content:text});
+
+  const pending = document.createElement("div");
+  pending.className = "msg assistant";
+  pending.innerHTML = '<div class="bubble">Thinking…</div>';
+  $("chat").appendChild(pending);
+  $("chat").scrollTop = $("chat").scrollHeight;
+
+  try {
+    const d = await api("/api/chat", {
+      method:"POST",
+      body:JSON.stringify({messages})
+    });
+    pending.remove();
+    addMessage("assistant", d.answer);
+    messages.push({role:"assistant", content:d.answer});
+  } catch(e) {
+    pending.remove();
+    addMessage("assistant", "Error: " + e.message);
+  }
+};
+
+$("mic").onclick = () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return alert("Voice input is not supported in this browser.");
+  if (recognition) { recognition.stop(); recognition = null; return; }
+  recognition = new SR();
+  recognition.lang = "en-IN";
+  recognition.interimResults = true;
+  recognition.onresult = e => {
+    let text = "";
+    for (const r of e.results) text += r[0].transcript;
+    $("input").value = text;
+  };
+  recognition.onend = () => recognition = null;
+  recognition.start();
+};
+
+checkSession();
+</script>
+</body>
+</html>
